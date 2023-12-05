@@ -147,17 +147,17 @@ class MULTIPATH_13(app_manager.RyuApp):
             self.mac_to_port[dpid][src_mac] = in_port
             return True
 
-    def send_group_mod(self, datapath,):
-        ofproto = datapath.ofproto
+    def send_group_mod(self, datapath, ):
+        """Do load balance"""
+
+        ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
 
         port_1 = 3
-        queue_1 = ofp_parser.OFPActionSetQueue(0)
-        actions_1 = [queue_1, ofp_parser.OFPActionOutput(port_1)]
+        actions_1 = [ofp_parser.OFPActionOutput(port_1)]
 
         port_2 = 2
-        queue_2 = ofp_parser.OFPActionSetQueue(0)
-        actions_2 = [queue_2, ofp_parser.OFPActionOutput(port_2)]
+        actions_2 = [ofp_parser.OFPActionOutput(port_2)]
 
         weight_1 = 50
         weight_2 = 50
@@ -170,8 +170,9 @@ class MULTIPATH_13(app_manager.RyuApp):
             ofp_parser.OFPBucket(weight_2, watch_port, watch_group, actions_2)]
 
         group_id = 50
-        req = ofp_parser.OFPGroupMod(datapath, ofproto.OFPFC_ADD,
-                                     ofproto.OFPGT_SELECT, group_id, buckets)
+        req = ofp_parser.OFPGroupMod(
+            datapath, ofp.OFPFC_ADD,
+            ofp.OFPGT_SELECT, group_id, buckets)
 
         datapath.send_msg(req)
 
@@ -227,7 +228,7 @@ class MULTIPATH_13(app_manager.RyuApp):
                     self.send_packet_out(datapath, msg.buffer_id,
                                          in_port, 2, msg.data)
                 else:
-                    #Normal flows
+                    # Normal flows
                     out_port = mac_to_port_table[eth.dst]
                     actions = [parser.OFPActionOutput(out_port)]
                     match = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst,
