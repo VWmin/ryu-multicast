@@ -24,7 +24,7 @@ from ryu.controller.handler import MAIN_DISPATCHER, HANDSHAKE_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.ofproto import ether
-from ryu.lib.packet import packet
+from ryu.lib.packet import packet, ether_types
 from ryu.lib.packet import ethernet
 from ryu.lib.packet import arp
 from ryu.lib.packet import ipv4
@@ -41,9 +41,8 @@ class MULTIPATH_13(app_manager.RyuApp):
         self.datapaths = {}
         self.FLAGS = True
 
-    @set_ev_cls(
-        ofp_event.EventOFPErrorMsg,
-        [HANDSHAKE_DISPATCHER, CONFIG_DISPATCHER, MAIN_DISPATCHER])
+    @set_ev_cls(ofp_event.EventOFPErrorMsg,
+                [HANDSHAKE_DISPATCHER, CONFIG_DISPATCHER, MAIN_DISPATCHER])
     def error_msg_handler(self, ev):
         msg = ev.msg
         self.logger.debug('OFPErrorMsg received: type=0x%02x code=0x%02x '
@@ -74,10 +73,10 @@ class MULTIPATH_13(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, 0, match, actions)
+        self.add_flow(datapath, 0, match, actions)
         self.logger.info("switch:%s connected", dpid)
 
-    def add_flow(self, datapath, hard_timeout, priority, match, actions):
+    def add_flow(self, datapath, priority, match, actions):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
@@ -85,7 +84,6 @@ class MULTIPATH_13(app_manager.RyuApp):
                                              actions)]
 
         mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                hard_timeout=hard_timeout,
                                 match=match, instructions=inst)
         datapath.send_msg(mod)
 
@@ -131,7 +129,7 @@ class MULTIPATH_13(app_manager.RyuApp):
             match = parser.OFPMatch(in_port=in_port, eth_dst=eth_pkt.dst,
                                     eth_type=eth_pkt.ethertype)
             actions = [parser.OFPActionOutput(out_port)]
-            self.add_flow(datapath, 0, 1, match, actions)
+            self.add_flow(datapath, 1, match, actions)
             self.send_packet_out(datapath, msg.buffer_id, in_port,
                                  out_port, msg.data)
             self.logger.debug("Reply ARP to knew host")
@@ -189,11 +187,8 @@ class MULTIPATH_13(app_manager.RyuApp):
         arp_pkt = pkt.get_protocol(arp.arp)
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
 
-        ip_pkt_6 = pkt.get_protocol(ipv6.ipv6)
-        if isinstance(ip_pkt_6, ipv6.ipv6):
-            actions = []
-            match = parser.OFPMatch(eth_type=ether.ETH_TYPE_IPV6)
-            self.add_flow(datapath, 0, 1, match, actions)
+        if eth.ethertype == ether_types.ETH_TYPE_LLDP \
+                or eth.ethertype == ether_types.ETH_TYPE_IPV6:
             return
 
         if isinstance(arp_pkt, arp.arp):
@@ -213,29 +208,29 @@ class MULTIPATH_13(app_manager.RyuApp):
 
             out_port = None
             if eth.dst in mac_to_port_table:
-                if dpid == 1 and in_port == 1:
-                    if self.FLAGS is True:
-                        self.send_group_mod(datapath)
-                        self.logger.info("send_group_mod")
-                        self.FLAGS = False
-
-                    actions = [parser.OFPActionGroup(group_id=50)]
-                    match = parser.OFPMatch(in_port=in_port,
-                                            eth_type=eth.ethertype,
-                                            ipv4_src=ip_pkt.src)
-                    self.add_flow(datapath, 0, 3, match, actions)
-                    # asign output at 2
-                    self.send_packet_out(datapath, msg.buffer_id,
-                                         in_port, 2, msg.data)
-                else:
-                    # Normal flows
-                    out_port = mac_to_port_table[eth.dst]
-                    actions = [parser.OFPActionOutput(out_port)]
-                    match = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst,
-                                            eth_type=eth.ethertype)
-                    self.add_flow(datapath, 0, 1, match, actions)
-                    self.send_packet_out(datapath, msg.buffer_id, in_port,
-                                         out_port, msg.data)
+                # if dpid == 1 and in_port == 1:
+                #     if self.FLAGS is True:
+                #         self.send_group_mod(datapath)
+                #         self.logger.info("send_group_mod")
+                #         self.FLAGS = False
+                #
+                #     actions = [parser.OFPActionGroup(group_id=50)]
+                #     match = parser.OFPMatch(in_port=in_port,
+                #                             eth_type=eth.ethertype,
+                #                             ipv4_src=ip_pkt.src)
+                #     self.add_flow(datapath, 0, 3, match, actions)
+                #     # asign output at 2
+                #     self.send_packet_out(datapath, msg.buffer_id,
+                #                          in_port, 2, msg.data)
+                # else:
+                # Normal flows
+                out_port = mac_to_port_table[eth.dst]
+                actions = [parser.OFPActionOutput(out_port)]
+                match = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst,
+                                        eth_type=eth.ethertype)
+                self.add_flow(datapath, 1, match, actions)
+                self.send_packet_out(datapath, msg.buffer_id, in_port,
+                                     out_port, msg.data)
             else:
                 if self.mac_learning(dpid, eth.src, in_port) is False:
                     self.logger.debug("IPV4 packet enter in different ports")
